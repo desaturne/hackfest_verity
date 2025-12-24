@@ -39,14 +39,14 @@ export default function HomePage() {
       const recentImages = userImages.slice(-3).reverse().map((item: any) => item.data)
       setLatestImages(recentImages)
     }
-    
+
     loadGallery()
-    
+
     // Listen for storage changes to sync gallery
     const handleStorageChange = () => {
       loadGallery()
     }
-    
+
     window.addEventListener('storage', handleStorageChange)
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [user, loading, router])
@@ -54,7 +54,7 @@ export default function HomePage() {
   // Show loading state
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex h-screen items-center justify-center overflow-hidden">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-muted-foreground">Loading...</p>
@@ -69,23 +69,23 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen w-full flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="shrink-0 border-b border-border bg-card">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/home" className="flex items-center gap-3">
+          <Link href="/home" className="flex items-center gap-2">
             <Image
-              src="/images/logo-20factuum.jpg"
+              src="/images/logo.png"
               alt="Factum Logo"
-              width={40}
-              height={40}
-              className="h-10 w-10 rounded-lg"
+              width={64}
+              height={64}
+              className="h-16 w-16 object-contain"
             />
             <span className="text-xl font-bold">Factum</span>
           </Link>
           <Button asChild variant="ghost" size="icon">
             <Link href="/profile">
-              <User className="h-5 w-5" />
+              <User className="h-6 w-6" />
               <span className="sr-only">Profile</span>
             </Link>
           </Button>
@@ -93,36 +93,36 @@ export default function HomePage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex flex-1 flex-col items-center justify-center px-4 py-12">
-        <div className="flex w-full max-w-md flex-col items-center gap-8 text-center">
+      <main className="flex flex-1 flex-col items-center justify-center px-4 py-4">
+        <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
           {/* Welcome Message */}
           <div className="space-y-2">
-            <h1 className="text-3xl font-bold">Welcome back, {userName}!</h1>
-            <p className="text-muted-foreground">What would you like to do today?</p>
+            <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
+            <p className="text-sm text-muted-foreground">Select an option to get started</p>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex w-full flex-col gap-4">
-            <Button asChild size="lg" className="w-full text-base">
+          <div className="flex w-full gap-3">
+            <Button asChild size="lg" className="flex-1 text-sm h-auto py-4 flex-col gap-2">
               <Link href="/camera">
-                <Camera className="mr-2 h-5 w-5" />
-                Camera
+                <Camera className="h-6 w-6" />
+                <span>Camera</span>
               </Link>
             </Button>
-            <Button asChild size="lg" variant="outline" className="w-full text-base bg-transparent">
+            <Button asChild size="lg" variant="outline" className="flex-1 text-sm h-auto py-4 flex-col gap-2 bg-transparent">
               <Link href="/verify">
-                <ShieldCheck className="mr-2 h-5 w-5" />
-                Verify
+                <ShieldCheck className="h-6 w-6" />
+                <span>Verify</span>
               </Link>
             </Button>
           </div>
 
           {/* Gallery Preview Section */}
           {galleryCount > 0 && (
-            <div className="w-full space-y-3">
+            <div className="w-full space-y-2">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Recent Captures</h2>
-                <Button asChild variant="link" size="sm">
+                <h2 className="text-sm font-semibold">Recent Captures</h2>
+                <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
                   <Link href="/gallery">
                     View All ({galleryCount})
                   </Link>
@@ -130,8 +130,8 @@ export default function HomePage() {
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {latestImages.map((img, idx) => (
-                  <div key={idx} className="aspect-square rounded-lg overflow-hidden bg-muted">
-                    <img src={img} alt={`Recent ${idx + 1}`} className="w-full h-full object-cover" />
+                  <div key={idx} className="aspect-square rounded-md overflow-hidden bg-muted relative">
+                    <img src={img} alt={`Recent ${idx + 1}`} className="absolute inset-0 w-full h-full object-cover" />
                   </div>
                 ))}
               </div>
@@ -141,24 +141,24 @@ export default function HomePage() {
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="border-t border-border bg-card">
-        <div className="container mx-auto flex items-center justify-around px-4 py-4">
-          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-2">
+      <nav className="shrink-0 border-t border-border bg-card">
+        <div className="container mx-auto flex items-center justify-around px-4 py-2">
+          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-1">
             <Link href="/gallery">
-              <ImageIcon className="h-6 w-6" />
-              <span className="text-xs">Gallery</span>
+              <ImageIcon className="h-5 w-5" />
+              <span className="text-[10px]">Gallery</span>
             </Link>
           </Button>
-          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-2">
+          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-1">
             <Link href="/camera">
-              <Camera className="h-6 w-6" />
-              <span className="text-xs">Camera</span>
+              <Camera className="h-5 w-5" />
+              <span className="text-[10px]">Camera</span>
             </Link>
           </Button>
-          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-2">
+          <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-1">
             <Link href="/profile">
-              <User className="h-6 w-6" />
-              <span className="text-xs">Profile</span>
+              <User className="h-5 w-5" />
+              <span className="text-[10px]">Profile</span>
             </Link>
           </Button>
         </div>

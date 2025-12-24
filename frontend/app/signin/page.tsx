@@ -12,12 +12,20 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { getSupabaseClient } from "@/lib/supabase"
 
+import { ArrowLeft } from "lucide-react"
+
 export default function SignInPage() {
   const router = useRouter()
   const { toast } = useToast()
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+  const [formData, setFormData] = useState({
+    email: "",
+    password: ""
+  })
   const [loading, setLoading] = useState(false)
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.id]: e.target.value })
+  }
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,132 +35,144 @@ export default function SignInPage() {
       if (!supabase) {
         throw new Error("Supabase not configured. Please check your environment variables.")
       }
-      
-      const { data, error } = await supabase.auth.signInWithPassword({ 
-        email: email.trim(), 
-        password 
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email.trim(),
+        password: formData.password
       })
-      
+
       if (error) throw error
-      
+
       if (data.user) {
-        toast({ 
-          title: "Signed in successfully", 
-          description: "Welcome back!" 
+        toast({
+          title: "Signed in successfully",
+          description: "Welcome back!"
         })
         // When using persisted sessions, redirect to protected area
         router.push("/home")
       }
     } catch (err: any) {
       const errorMessage = err.message || String(err)
-      toast({ 
-        title: "Sign in failed", 
-        description: errorMessage.includes("Invalid login credentials") 
+      toast({
+        title: "Sign in failed",
+        description: errorMessage.includes("Invalid login credentials")
           ? "Invalid email or password. Please try again."
           : errorMessage,
-        variant: "destructive" 
+        variant: "destructive"
       })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleGoogle = async () => {
+  const handleGoogleSignIn = async () => {
     try {
       const supabase = getSupabaseClient()
       if (!supabase) {
         throw new Error("Supabase not configured. Please check your environment variables.")
       }
-      
-      const { error } = await supabase.auth.signInWithOAuth({ 
+
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}/home`
         }
       })
-      
+
       if (error) throw error
     } catch (err: any) {
-      toast({ 
-        title: "Google sign in failed", 
-        description: err.message || "Unable to sign in with Google", 
-        variant: "destructive" 
+      toast({
+        title: "Google sign in failed",
+        description: err.message || "Unable to sign in with Google",
+        variant: "destructive"
       })
     }
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-muted/30 px-4 py-12">
-      <div className="w-full max-w-md space-y-8">
-        {/* Logo and Mascot */}
-        <div className="flex flex-col items-center gap-4">
-          <Image
-            src="/images/logo-20factuum.jpg"
-            alt="Factum Logo"
-            width={60}
-            height={60}
-            className="h-16 w-16 rounded-xl"
-          />
-          <Image
-            src="/images/mascot-20factum.png"
-            alt="Factum Mascot"
-            width={120}
-            height={120}
-            className="h-28 w-auto"
-          />
-          <h1 className="text-3xl font-bold">Sign In</h1>
+    <div className="flex min-h-screen w-full flex-col bg-muted/30">
+      <header className="border-b border-border bg-card shrink-0">
+        <div className="container mx-auto flex h-16 items-center px-4">
+          <Button asChild variant="ghost" size="icon">
+            <Link href="/">
+              <ArrowLeft className="h-6 w-6" />
+            </Link>
+          </Button>
+          <div className="ml-4 flex items-center gap-2">
+            <Image
+              src="/images/logo.png"
+              alt="Factum Logo"
+              width={40}
+              height={40}
+              className="h-10 w-10 object-contain"
+            />
+            <h1 className="text-xl font-bold">Sign In</h1>
+          </div>
         </div>
+      </header>
 
-        {/* Sign In Form */}
-        <form onSubmit={handleSignIn} className="space-y-6 rounded-xl bg-card p-8 shadow-sm border border-border">
-          <div className="space-y-4">
+      <main className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm space-y-6 text-center">
+          {/* Mascot */}
+          <div className="flex justify-center">
+            <Image
+              src="/images/signin.png"
+              alt="Sign In Mascot"
+              width={240}
+              height={240}
+              className="h-60 w-auto object-contain"
+              priority
+            />
+          </div>
+
+          <h1 className="text-2xl font-bold">Welcome Back</h1>
+
+          <form onSubmit={handleSignIn} className="space-y-4 text-left">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="m@example.com"
+                value={formData.email}
+                onChange={handleChange}
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link href="#" className="text-xs text-muted-foreground hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={formData.password}
+                onChange={handleChange}
                 required
               />
             </div>
-          </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing In..." : "Sign In"}
-          </Button>
-          <Button type="button" variant="outline" className="w-full" onClick={handleGoogle}>
-            Sign in with Google
-          </Button>
-        </form>
+            <div className="space-y-2 pt-2">
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Signing in..." : "Sign In"}
+              </Button>
+              <Button type="button" variant="outline" className="w-full bg-transparent" onClick={handleGoogleSignIn}>
+                Sign in with Google
+              </Button>
+            </div>
+          </form>
 
-        {/* Sign Up Link */}
-        <p className="text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-medium text-accent hover:underline">
-            Sign up
-          </Link>
-        </p>
-
-        {/* Back to Home */}
-        <div className="text-center">
-          <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
-            ← Back to Home
-          </Link>
+          <p className="text-center text-xs text-muted-foreground">
+            Don&apos;t have an account?{" "}
+            <Link href="/signup" className="font-medium text-primary hover:underline">
+              Sign up
+            </Link>
+          </p>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

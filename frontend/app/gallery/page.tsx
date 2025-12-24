@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, CheckCircle2, XCircle, Trash2, MapPin, Clock, Hash, Link2 } from "lucide-react"
 import { DeleteConfirmationModal } from "@/components/delete-confirmation-modal"
@@ -37,7 +38,7 @@ export default function GalleryPage() {
         setLoadingMedia(true)
         const userId = user?.id || 'guest'
         const mediaItems = await getUserMedia(userId)
-        
+
         // Get URLs for all media
         const itemsWithUrls = await Promise.all(
           mediaItems.map(async (item) => {
@@ -45,7 +46,7 @@ export default function GalleryPage() {
             return { ...item, imageUrl }
           })
         )
-        
+
         setItems(itemsWithUrls)
       } catch (error) {
         console.error("Error loading gallery:", error)
@@ -53,7 +54,7 @@ export default function GalleryPage() {
         setLoadingMedia(false)
       }
     }
-    
+
     loadGallery()
   }, [user, loading])
 
@@ -72,7 +73,7 @@ export default function GalleryPage() {
           setItems(updatedItems)
           setDeleteModalOpen(false)
           setItemToDelete(null)
-          
+
           // Close detail modal if the deleted item was being viewed
           if (selectedItem?.id === itemToDelete) {
             setDetailModalOpen(false)
@@ -95,16 +96,25 @@ export default function GalleryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="h-screen w-full flex flex-col overflow-hidden bg-muted/30">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="shrink-0 border-b border-border bg-card">
         <div className="container mx-auto flex h-16 items-center px-4">
           <Button asChild variant="ghost" size="icon">
             <Link href="/home">
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-6 w-6" />
             </Link>
           </Button>
-          <h1 className="ml-4 text-xl font-bold">Gallery</h1>
+          <div className="ml-4 flex items-center gap-2">
+            <Image
+              src="/images/logo.png"
+              alt="Factum Logo"
+              width={40}
+              height={40}
+              className="h-10 w-10 object-contain"
+            />
+            <h1 className="text-xl font-bold">Gallery</h1>
+          </div>
         </div>
       </header>
 
@@ -125,8 +135,8 @@ export default function GalleryPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
             {items.map((item) => (
-              <div 
-                key={item.id} 
+              <div
+                key={item.id}
                 className="group relative aspect-square overflow-hidden rounded-lg bg-card shadow-sm cursor-pointer"
                 onClick={() => handleItemClick(item)}
               >
@@ -297,7 +307,7 @@ export default function GalleryPage() {
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Blockchain Timestamp:</p>
                         <p className="text-sm">
-                          {selectedItem.metadata.blockchainTimestamp && 
+                          {selectedItem.metadata.blockchainTimestamp &&
                             new Date(selectedItem.metadata.blockchainTimestamp).toLocaleString()}
                         </p>
                       </div>
@@ -316,7 +326,7 @@ export default function GalleryPage() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                        This media was captured in guest mode and is not verified on the blockchain. 
+                        This media was captured in guest mode and is not verified on the blockchain.
                         Sign in to enable verification for future captures.
                       </p>
                     </CardContent>
