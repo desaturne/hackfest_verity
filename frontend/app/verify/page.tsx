@@ -51,23 +51,23 @@ export default function VerifyPage() {
   useEffect(() => {
     if (!user) return
 
-    ;(async () => {
-      try {
-        setLoadingMedia(true)
-        const media = await getUserMedia(user.id)
-        const withUrls = await Promise.all(
-          media
-            .filter((m) => m.type === "photo")
-            .map(async (m) => ({ ...m, imageUrl: await getMediaUrl(m.storage_path) })),
-        )
-        setMediaItems(withUrls)
-        if (!selectedItemId && withUrls.length > 0) setSelectedItemId(withUrls[0].id)
-      } catch (error) {
-        console.error("Error loading media for verification:", error)
-      } finally {
-        setLoadingMedia(false)
-      }
-    })()
+      ; (async () => {
+        try {
+          setLoadingMedia(true)
+          const media = await getUserMedia(user.id)
+          const withUrls = await Promise.all(
+            media
+              .filter((m) => m.type === "photo")
+              .map(async (m) => ({ ...m, imageUrl: await getMediaUrl(m.storage_path) })),
+          )
+          setMediaItems(withUrls)
+          if (!selectedItemId && withUrls.length > 0) setSelectedItemId(withUrls[0].id)
+        } catch (error) {
+          console.error("Error loading media for verification:", error)
+        } finally {
+          setLoadingMedia(false)
+        }
+      })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
@@ -167,24 +167,24 @@ export default function VerifyPage() {
     if (!file) return
 
     setLoading(true)
-    ;(async () => {
-      try {
-        if (!file.type.startsWith("image/")) {
-          const next: VerificationResult = {
-            status: "insufficient",
-            message:
-              "Sorry, but we do not have sufficient data to check the credibility of the img/vid at the moment.",
+      ; (async () => {
+        try {
+          if (!file.type.startsWith("image/")) {
+            const next: VerificationResult = {
+              status: "insufficient",
+              message:
+                "Sorry, but we do not have sufficient data to check the credibility of the img/vid at the moment.",
+            }
+            setResult(next)
+            toast({ title: "Verification Complete", description: next.message })
+            return
           }
-          setResult(next)
-          toast({ title: "Verification Complete", description: next.message })
-          return
-        }
 
-        const data = await verifyWithBackend(file)
-        const verified = Boolean(data?.verified)
+          const data = await verifyWithBackend(file)
+          const verified = Boolean(data?.verified)
 
-        const next: VerificationResult = verified
-          ? {
+          const next: VerificationResult = verified
+            ? {
               status: "verified",
               message: "No alterations made.",
               latitude: Number(storedLatitude),
@@ -192,29 +192,29 @@ export default function VerifyPage() {
               timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
               blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
             }
-          : {
+            : {
               status: "altered",
               message: "No matching block found for this image + metadata.",
             }
 
-        setResult(next)
-        try {
-          await persistVerification(verified, data?.timestamp, data?.blockIndex)
-        } catch (e: any) {
-          console.warn("Unable to persist verification state:", e)
-        }
+          setResult(next)
+          try {
+            await persistVerification(verified, data?.timestamp, data?.blockIndex)
+          } catch (e: any) {
+            console.warn("Unable to persist verification state:", e)
+          }
 
-        toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
-      } catch (error: any) {
-        toast({
-          title: "Verification failed",
-          description: error?.message || "Unable to verify media",
-          variant: "destructive",
-        })
-      } finally {
-        setLoading(false)
-      }
-    })()
+          toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+        } catch (error: any) {
+          toast({
+            title: "Verification failed",
+            description: error?.message || "Unable to verify media",
+            variant: "destructive",
+          })
+        } finally {
+          setLoading(false)
+        }
+      })()
   }
 
   const handleVerifyFromSaved = async () => {
@@ -230,17 +230,17 @@ export default function VerifyPage() {
 
       const next: VerificationResult = verified
         ? {
-            status: "verified",
-            message: "No alterations made.",
-            latitude: Number(storedLatitude),
-            longitude: Number(storedLongitude),
-            timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
-            blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
-          }
+          status: "verified",
+          message: "No alterations made.",
+          latitude: Number(storedLatitude),
+          longitude: Number(storedLongitude),
+          timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
+          blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
+        }
         : {
-            status: "altered",
-            message: "No matching block found for this image + metadata.",
-          }
+          status: "altered",
+          message: "No matching block found for this image + metadata.",
+        }
 
       setResult(next)
       try {
@@ -280,7 +280,7 @@ export default function VerifyPage() {
       <header className="border-b border-border bg-card shrink-0">
         <div className="container mx-auto flex h-16 items-center px-4">
           <Button asChild variant="ghost" size="icon">
-            <Link href="/">
+            <Link href="/home">
               <ArrowLeft className="h-6 w-6" />
             </Link>
           </Button>
