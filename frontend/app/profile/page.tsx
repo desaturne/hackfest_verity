@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -71,16 +72,25 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="h-screen w-full flex flex-col overflow-hidden bg-muted/30">
       {/* Header */}
-      <header className="border-b border-border bg-card">
+      <header className="shrink-0 border-b border-border bg-card">
         <div className="container mx-auto flex h-16 items-center px-4">
           <Button asChild variant="ghost" size="icon">
             <Link href="/home">
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-6 w-6" />
             </Link>
           </Button>
-          <h1 className="ml-4 text-xl font-bold">Profile</h1>
+          <div className="ml-4 flex items-center gap-2">
+            <Image
+              src="/images/logo.png"
+              alt="Factum Logo"
+              width={40}
+              height={40}
+              className="h-10 w-10 object-contain"
+            />
+            <h1 className="text-xl font-bold">Profile</h1>
+          </div>
         </div>
       </header>
 
