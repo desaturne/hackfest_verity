@@ -26,6 +26,7 @@ export default function CameraPage() {
   const [hasPermission, setHasPermission] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [capturedAt, setCapturedAt] = useState<string | null>(null)
   const [flashEnabled, setFlashEnabled] = useState(false)
   const [mode, setMode] = useState<"photo" | "video">("photo")
   const [latestImage, setLatestImage] = useState<string | null>(null)
@@ -182,11 +183,26 @@ export default function CameraPage() {
         ctx.drawImage(video, 0, 0)
         const imageData = canvas.toDataURL("image/png")
         setCapturedImage(imageData)
+        setCapturedAt(new Date().toISOString())
         setShowSaveModal(true)
         // Stop camera after capturing
         stopCamera()
       }
     }
+  }
+
+  const dataUrlToFile = (dataUrl: string, fileName: string) => {
+    const [header, base64] = dataUrl.split(",")
+    const match = header.match(/data:(.*?);base64/)
+    const contentType = match?.[1] || "image/png"
+    const byteCharacters = atob(base64)
+    const byteNumbers = new Array(byteCharacters.length)
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i)
+    }
+    const byteArray = new Uint8Array(byteNumbers)
+    const blob = new Blob([byteArray], { type: contentType })
+    return new File([blob], fileName, { type: contentType })
   }
 
   const handleSave = async () => {
@@ -201,12 +217,7 @@ export default function CameraPage() {
     })
 
     try {
-      // Generate blockchain hash
-      const generateHash = () => {
-        return 'SHA256:' + Array.from({length: 64}, () => 
-          Math.floor(Math.random() * 16).toString(16)
-        ).join('').toUpperCase()
-      }
+      const timestamp = capturedAt || new Date().toISOString()
 
       // Get real geolocation
       const location = await new Promise<{latitude: string, longitude: string}>((resolve) => {
@@ -234,14 +245,34 @@ export default function CameraPage() {
         }
       })
 
+      // Upload to backend to create blockchain block (signed-in users)
+      let backendHash: string | null = null
+      let backendBlockIndex: number | null = null
+
+      if (!isGuest) {
+        const file = dataUrlToFile(capturedImage, `capture-${Date.now()}.png`)
+        const fd = new FormData()
+        fd.append("image", file)
+        fd.append("latitude", location.latitude)
+        fd.append("longitude", location.longitude)
+        fd.append("timestamp", timestamp)
+
+        const res = await fetch("/api/evidence/upload", { method: "POST", body: fd })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || "Backend upload failed")
+
+        backendHash = data?.hash || null
+        backendBlockIndex = typeof data?.blockIndex === "number" ? data.blockIndex : null
+      }
+
       const metadata = {
-        hash: generateHash(),
+        hash: backendHash || "",
         latitude: location.latitude,
         longitude: location.longitude,
         device: navigator.userAgent,
-        blockchainTxId: !isGuest ? 'TX:' + Date.now().toString(36).toUpperCase() : null,
-        blockchainBlock: !isGuest ? Math.floor(Math.random() * 1000000) : null,
-        blockchainTimestamp: !isGuest ? new Date().toISOString() : null,
+        blockchainTxId: !isGuest ? (backendHash || null) : null,
+        blockchainBlock: !isGuest ? backendBlockIndex : null,
+        blockchainTimestamp: !isGuest ? timestamp : null,
         verificationStatus: !isGuest ? 'confirmed' : 'unverified'
       }
 
@@ -255,7 +286,8 @@ export default function CameraPage() {
         locationString,
         metadata,
         userId,
-        isGuest
+        isGuest,
+        timestamp
       )
 
       toast({
@@ -268,6 +300,7 @@ export default function CameraPage() {
       // Update gallery thumbnail
       setLatestImage(capturedImage)
       setCapturedImage(null)
+      setCapturedAt(null)
       
     } catch (error: any) {
       console.error("Error saving media:", error)
@@ -283,6 +316,7 @@ export default function CameraPage() {
 
   const handleRetake = async () => {
     setCapturedImage(null)
+    setCapturedAt(null)
     setShowSaveModal(false)
     // Restart camera for retake
     await requestCameraAccess()

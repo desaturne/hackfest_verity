@@ -69,6 +69,18 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
             data: { session: existingSession },
           } = await client.auth.getSession()
 
+          // Proactively refresh session (helps avoid Storage exp errors)
+          if (existingSession) {
+            const refreshed = await client.auth.refreshSession().catch(() => null)
+            if (refreshed?.data?.session) {
+              if (mounted) {
+                setSession(refreshed.data.session)
+                setUser(refreshed.data.session.user)
+              }
+              return
+            }
+          }
+
           if (mounted) {
             setSession(existingSession ?? null)
             setUser(existingSession?.user ?? null)

@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, CheckCircle2, XCircle, Trash2, MapPin, Clock, Hash, Link2 } from "lucide-react"
 import { DeleteConfirmationModal } from "@/components/delete-confirmation-modal"
 import { useAuth } from "@/lib/supabase"
-import { getUserMedia, getMediaUrl, deleteMedia, type MediaItem } from "@/lib/supabase/media"
+import {
+  getUserMedia,
+  getMediaUrl,
+  deleteMedia,
+  downloadMediaFile,
+  updateMediaVerification,
+  type MediaItem,
+} from "@/lib/supabase/media"
 import {
   Dialog,
   DialogContent,
@@ -16,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/hooks/use-toast"
 
 type GalleryItem = MediaItem & {
   imageUrl?: string
@@ -23,12 +31,14 @@ type GalleryItem = MediaItem & {
 
 export default function GalleryPage() {
   const { user, loading } = useAuth()
+  const { toast } = useToast()
   const [items, setItems] = useState<GalleryItem[]>([])
   const [loadingMedia, setLoadingMedia] = useState(true)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<string | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null)
+  const [isVerifying, setIsVerifying] = useState(false)
 
   useEffect(() => {
     if (loading) return
@@ -89,6 +99,79 @@ export default function GalleryPage() {
   const handleItemClick = (item: GalleryItem) => {
     setSelectedItem(item)
     setDetailModalOpen(true)
+  }
+
+  const handleVerifySelected = async () => {
+    if (!user || !selectedItem) return
+
+    const latitude = selectedItem.metadata?.latitude
+    const longitude = selectedItem.metadata?.longitude
+    const timestampForHash = selectedItem.metadata?.blockchainTimestamp || selectedItem.timestamp
+
+    if (!latitude || !longitude || !timestampForHash) {
+      toast({
+        title: "Cannot verify",
+        description: "Missing required metadata (lat/long/timestamp).",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsVerifying(true)
+    try {
+      toast({
+        title: "Verifying...",
+        description: "Uploading this media from your gallery for verification",
+      })
+
+      const file = await downloadMediaFile(
+        selectedItem.storage_path,
+        `media-${selectedItem.id}.png`,
+      )
+
+      const fd = new FormData()
+      fd.append("image", file)
+      fd.append("latitude", latitude)
+      fd.append("longitude", longitude)
+      fd.append("timestamp", timestampForHash)
+
+      const res = await fetch("/api/evidence/verify", { method: "POST", body: fd })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Verification failed")
+
+      const verified = Boolean(data?.verified)
+      const nextMetadata = {
+        ...(selectedItem.metadata as any),
+        verificationStatus: verified ? "confirmed" : "altered",
+      }
+      const nextVerified = verified ? true : selectedItem.verified
+
+      try {
+        const updated = await updateMediaVerification(selectedItem.id, nextVerified, nextMetadata)
+        if (updated) {
+          setItems((prev) => prev.map((it) => (it.id === selectedItem.id ? { ...it, ...updated } : it)))
+          setSelectedItem((prev) => (prev && prev.id === selectedItem.id ? { ...prev, ...updated } : prev))
+        }
+      } catch (e: any) {
+        console.warn("Unable to persist verification state:", e)
+      }
+
+      toast({
+        title: verified ? "Verified" : "Not verified",
+        description: verified
+          ? "No alterations made."
+          : "No matching proof found in backend ledger (or metadata mismatch).",
+        variant: verified ? "default" : "destructive",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Verification error",
+        description: error?.message || "Unable to verify this media",
+        variant: "destructive",
+      })
+    } finally {
+      setIsVerifying(false)
+    }
   }
 
   const copyToClipboard = (text: string) => {
@@ -205,6 +288,12 @@ export default function GalleryPage() {
                   className="w-full h-full object-contain bg-muted"
                 />
               </div>
+
+              {user && (
+                <Button className="w-full" onClick={handleVerifySelected} disabled={isVerifying}>
+                  {isVerifying ? "Verifying..." : "Verify from Gallery"}
+                </Button>
+              )}
 
               {/* Metadata Cards */}
               <div className="space-y-3">

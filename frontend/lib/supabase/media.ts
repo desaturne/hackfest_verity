@@ -32,7 +32,8 @@ export async function uploadMedia(
   location: string,
   metadata: MediaMetadata,
   userId: string,
-  isGuest: boolean
+  isGuest: boolean,
+  timestampOverride?: string
 ) {
   const supabase = getSupabaseClient()
   if (!supabase) throw new Error("Supabase client not initialized")
@@ -52,13 +53,23 @@ export async function uploadMedia(
     const timestamp = Date.now()
     const fileName = `${userId}/${timestamp}.png`
 
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("media")
-      .upload(fileName, blob, {
+    // Upload to Supabase Storage (retry once if session expired)
+    const doUpload = async () => {
+      return supabase.storage.from("media").upload(fileName, blob, {
         contentType: "image/png",
         upsert: false,
       })
+    }
+
+    let { data: uploadData, error: uploadError } = await doUpload()
+
+    if (uploadError) {
+      const msg = String((uploadError as any)?.message || uploadError)
+      if (msg.includes("exp") || msg.includes("timestamp check failed")) {
+        await supabase.auth.refreshSession().catch(() => null)
+        ;({ data: uploadData, error: uploadError } = await doUpload())
+      }
+    }
 
     if (uploadError) throw uploadError
 
@@ -67,7 +78,7 @@ export async function uploadMedia(
       .from("media")
       .insert({
         type,
-        timestamp: new Date().toISOString(),
+        timestamp: timestampOverride || new Date().toISOString(),
         verified: !isGuest,
         location,
         user_id: userId,
@@ -84,6 +95,43 @@ export async function uploadMedia(
     console.error("Error uploading media:", error)
     throw error
   }
+}
+
+/**
+ * Download a stored media file as a browser File
+ */
+export async function downloadMediaFile(storagePath: string, fileName = "media.png") {
+  const supabase = getSupabaseClient()
+  if (!supabase) throw new Error("Supabase client not initialized")
+
+  const { data, error } = await supabase.storage.from("media").download(storagePath)
+  if (error) throw error
+  if (!data) throw new Error("No data returned from storage")
+
+  const contentType = (data as any).type || "image/png"
+  return new File([data], fileName, { type: contentType })
+}
+
+/**
+ * Update verification state for a media record
+ */
+export async function updateMediaVerification(
+  id: string,
+  verified: boolean,
+  metadata: MediaMetadata
+) {
+  const supabase = getSupabaseClient()
+  if (!supabase) throw new Error("Supabase client not initialized")
+
+  const { data, error } = await supabase
+    .from("media")
+    .update({ verified, metadata })
+    .eq("id", id)
+    .select()
+
+  if (error) throw error
+  // If there's no UPDATE policy (RLS), this can legitimately return an empty array.
+  return ((data as any[])?.[0] ?? null) as MediaItem | null
 }
 
 /**
