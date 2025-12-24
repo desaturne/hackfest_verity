@@ -95,6 +95,18 @@ export default function HomePage() {
       {/* Main Content */}
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-4">
         <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
+          {/* Mascot */}
+          <div className="flex justify-center">
+            <Image
+              src="/images/verify.png"
+              alt="Dashboard Mascot"
+              width={160}
+              height={160}
+              className="h-40 w-auto object-contain"
+              priority
+            />
+          </div>
+
           {/* Welcome Message */}
           <div className="space-y-2">
             <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
@@ -142,7 +154,7 @@ export default function HomePage() {
 
       {/* Bottom Navigation */}
       <nav className="shrink-0 border-t border-border bg-card">
-        <div className="container mx-auto flex items-center justify-around px-4 py-2">
+        <div className="container mx-auto flex items-center justify-around px-4 pt-2 pb-6">
           <Button asChild variant="ghost" className="flex flex-col gap-1 h-auto py-1">
             <Link href="/gallery">
               <ImageIcon className="h-5 w-5" />
