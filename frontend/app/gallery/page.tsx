@@ -226,24 +226,24 @@ export default function GalleryPage() {
         }
         const nextVerified = allVerified ? true : item.verified
 
-      try {
+        try {
           const updated = await updateMediaVerification(item.id, nextVerified, nextMetadata)
-        if (updated) {
+          if (updated) {
             setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, ...updated } : it)))
             setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, ...updated } : prev))
+          }
+        } catch (e: any) {
+          console.warn("Unable to persist verification state:", e)
         }
-      } catch (e: any) {
-        console.warn("Unable to persist verification state:", e)
-      }
 
-      toast({
-        title: allVerified ? "Verified" : "Not verified",
-        description: allVerified
-          ? `Video verified. ${verifiedCount}/${frames.length} frames matched.`
-          : `Video altered. ${verifiedCount}/${frames.length} frames matched. Failed frames: ${failedIndices.map((x) => x + 1).join(", ")}.`,
-        variant: allVerified ? "default" : "destructive",
-      })
-      return
+        toast({
+          title: allVerified ? "Verified" : "Not verified",
+          description: allVerified
+            ? `Video verified. ${verifiedCount}/${frames.length} frames matched.`
+            : `Video altered. ${verifiedCount}/${frames.length} frames matched. Failed frames: ${failedIndices.map((x) => x + 1).join(", ")}.`,
+          variant: allVerified ? "default" : "destructive",
+        })
+        return
       }
 
       throw new Error("Unsupported media type")
@@ -413,7 +413,7 @@ export default function GalleryPage() {
 
       {/* Detail Modal */}
       <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-lg max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Media Details
@@ -457,31 +457,7 @@ export default function GalleryPage() {
 
               {/* Metadata Cards */}
               <div className="space-y-3">
-                {/* Hash */}
-                {selectedItem.metadata?.hash && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Hash className="h-4 w-4" />
-                        Content Hash
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center justify-between gap-2">
-                        <code className="text-xs bg-muted px-2 py-1 rounded flex-1 overflow-x-auto">
-                          {selectedItem.metadata.hash}
-                        </code>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => copyToClipboard(selectedItem.metadata!.hash)}
-                        >
-                          Copy
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+
 
                 {/* Location */}
                 <Card>
@@ -518,51 +494,7 @@ export default function GalleryPage() {
                   </CardContent>
                 </Card>
 
-                {/* Blockchain Data */}
-                {selectedItem.verified && selectedItem.metadata?.blockchainTxId && (
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Link2 className="h-4 w-4" />
-                        Blockchain Data
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Transaction ID:</p>
-                        <div className="flex items-center justify-between gap-2">
-                          <code className="text-xs bg-muted px-2 py-1 rounded flex-1">
-                            {selectedItem.metadata.blockchainTxId}
-                          </code>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => copyToClipboard(selectedItem.metadata!.blockchainTxId!)}
-                          >
-                            Copy
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Block Number:</span>
-                        <span className="text-sm font-mono">{selectedItem.metadata.blockchainBlock}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Status:</span>
-                        <span className="text-sm font-semibold text-green-500 capitalize">
-                          {selectedItem.metadata.verificationStatus}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Blockchain Timestamp:</p>
-                        <p className="text-sm">
-                          {selectedItem.metadata.blockchainTimestamp &&
-                            new Date(selectedItem.metadata.blockchainTimestamp).toLocaleString()}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+
 
                 {/* Unverified Notice */}
                 {!selectedItem.verified && (

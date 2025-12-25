@@ -87,7 +87,7 @@ export function downloadEvidencePackage(pkg: EvidencePackageV1, fileName?: strin
   const blob = new Blob([JSON.stringify(pkg, null, 2)], {
     type: "application/json",
   })
-  const url = URL.createObjectURL(blob)s
+  const url = URL.createObjectURL(blob)
 
   const a = document.createElement("a")
   a.href = url
