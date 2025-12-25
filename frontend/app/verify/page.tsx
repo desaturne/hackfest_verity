@@ -361,17 +361,6 @@ export default function VerifyPage() {
                   </div>
                 </div>
               )}
-
-              {user && selectedItem && (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleVerifyFromSaved}
-                  disabled={loading}
-                >
-                  {loading ? "Verifying..." : "Verify using saved Supabase media"}
-                </Button>
-              )}
             </div>
 
             {/* Upload Area */}
@@ -403,6 +392,18 @@ export default function VerifyPage() {
                 <video src={preview} controls className="w-full h-full object-contain" />
               )}
             </div>
+            <div>
+            {user && selectedItem && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleVerifyFromSaved}
+                  disabled={loading}
+                >
+                  {loading ? "Verifying..." : "Verify using saved Supabase media"}
+                </Button>
+              )}
+              </div>
 
             <div className="flex gap-2">
               <Button onClick={handleVerifyUploadedFile} disabled={loading} className="flex-1">
@@ -416,8 +417,12 @@ export default function VerifyPage() {
                 }}
                 variant="outline"
               >
+
                 Clear
               </Button>
+
+            
+
             </div>
           </div>
         )}
