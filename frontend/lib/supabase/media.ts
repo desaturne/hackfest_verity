@@ -9,6 +9,15 @@ export type MediaMetadata = {
   blockchainBlock?: number | null
   blockchainTimestamp?: string | null
   verificationStatus?: string
+
+  // Optional video support (stored inside existing JSON metadata; no schema changes)
+  videoFrameCount?: number
+  videoFrameTimesSec?: number[]
+  videoFrameTimestamps?: string[]
+  videoFrameHashes?: string[]
+  videoFrameBlockIndices?: Array<number | null>
+  videoVerifiedFrameCount?: number
+  videoFailedFrameIndices?: number[]
 }
 
 export type MediaItem = {

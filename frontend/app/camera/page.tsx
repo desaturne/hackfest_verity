@@ -15,6 +15,7 @@ import { Camera, FishOff as FlashOff, SlashIcon as FlashOn, X, Images } from "lu
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/supabase"
 import { uploadMedia } from "@/lib/supabase/media"
+import { extractVideoFrames, getVideoDurationSeconds, makeEvenlySpacedTimes } from "@/lib/video/extract-frames"
 
 export default function CameraPage() {
   const router = useRouter()
@@ -289,7 +290,7 @@ export default function CameraPage() {
     })
 
     try {
-      const timestamp = capturedAt || new Date().toISOString()
+      const captureTimestamp = capturedAt || new Date().toISOString()
 
       // Get real geolocation
       const location = await new Promise<{ latitude: string, longitude: string }>((resolve) => {
@@ -320,43 +321,87 @@ export default function CameraPage() {
       // Upload to backend to create blockchain block (signed-in users)
       let backendHash: string | null = null
       let backendBlockIndex: number | null = null
+      let videoFrameHashes: string[] | null = null
+      let videoFrameBlockIndices: Array<number | null> | null = null
+      let videoFrameTimesSec: number[] | null = null
+      let videoFrameTimestamps: string[] | null = null
 
       if (!isGuest) {
-        const timestamp = Date.now()
-        let file: File
-
         if (capturedImage) {
-          file = dataUrlToFile(capturedImage, `capture-${timestamp}.png`)
-        } else if (capturedVideo) {
-          // For video, we pass the Blob directly
-          const ext = capturedVideo.type.includes("mp4") ? "mp4" : "webm"
-          file = new File([capturedVideo], `capture-${timestamp}.${ext}`, { type: capturedVideo.type })
-        } else {
-          return
-        }
+          const now = Date.now()
+          const file = dataUrlToFile(capturedImage, `capture-${now}.png`)
 
-        const fd = new FormData()
-        fd.append("image", file) // API expects 'image' but logic might handle video or generic file
-        fd.append("latitude", location.latitude)
-        fd.append("longitude", location.longitude)
-        fd.append("timestamp", timestamp.toString()) // Ensure it's string if needed or original ISO
+          const fd = new FormData()
+          fd.append("image", file)
+          fd.append("latitude", location.latitude)
+          fd.append("longitude", location.longitude)
+          fd.append("timestamp", captureTimestamp)
 
-        // NOTE: If backend api/evidence/upload expects only image, this might fail for video.
-        // Assuming backend can handle it or we prioritize saving to storage for now.
-        // If backend verification fails for video, we might want to skip this block for video 
-        // OR warn user. For now, we try uploading.
-
-        try {
-          const res = await fetch("/api/evidence/upload", { method: "POST", body: fd })
-          const data = await res.json().catch(() => ({}))
-          if (res.ok) {
-            backendHash = data?.hash || null
-            backendBlockIndex = typeof data?.blockIndex === "number" ? data.blockIndex : null
-          } else {
-            console.warn("Backend upload failed, proceeding with Storage upload:", data?.error)
+          try {
+            const res = await fetch("/api/evidence/upload", { method: "POST", body: fd })
+            const data = await res.json().catch(() => ({}))
+            if (res.ok) {
+              backendHash = data?.hash || null
+              backendBlockIndex = typeof data?.blockIndex === "number" ? data.blockIndex : null
+            } else {
+              console.warn("Backend upload failed, proceeding with Storage upload:", data?.error)
+            }
+          } catch (e) {
+            console.warn("Backend upload error:", e)
           }
-        } catch (e) {
-          console.warn("Backend upload error:", e)
+        } else if (capturedVideo) {
+          // Backend only supports image hashing. For videos we anchor N extracted frames.
+          toast({
+            title: "Processing video...",
+            description: "Extracting frames for blockchain anchoring",
+          })
+
+          const durationSec = await getVideoDurationSeconds(capturedVideo)
+          const frameCount = 5
+          const times = makeEvenlySpacedTimes(durationSec || 5, frameCount)
+          const frames = await extractVideoFrames(capturedVideo, times, { mimeType: "image/jpeg", quality: 0.92 })
+
+          const baseMs = Number.isFinite(Date.parse(captureTimestamp)) ? Date.parse(captureTimestamp) : Date.now()
+          const perFrameTimestamps = frames.map((f) => new Date(baseMs + Math.round(f.timeSec * 1000)).toISOString())
+
+          videoFrameTimesSec = frames.map((f) => f.timeSec)
+          videoFrameTimestamps = perFrameTimestamps
+          videoFrameHashes = []
+          videoFrameBlockIndices = []
+
+          for (let i = 0; i < frames.length; i++) {
+            const frameFile = frames[i].file
+            const frameTimestamp = perFrameTimestamps[i]
+
+            const fd = new FormData()
+            fd.append("image", frameFile)
+            fd.append("latitude", location.latitude)
+            fd.append("longitude", location.longitude)
+            fd.append("timestamp", frameTimestamp)
+
+            try {
+              const res = await fetch("/api/evidence/upload", { method: "POST", body: fd })
+              const data = await res.json().catch(() => ({}))
+              if (res.ok) {
+                const h = typeof data?.hash === "string" ? data.hash : ""
+                const bi = typeof data?.blockIndex === "number" ? data.blockIndex : null
+                videoFrameHashes.push(h)
+                videoFrameBlockIndices.push(bi)
+              } else {
+                console.warn("Backend frame upload failed:", data?.error)
+                videoFrameHashes.push("")
+                videoFrameBlockIndices.push(null)
+              }
+            } catch (e) {
+              console.warn("Backend frame upload error:", e)
+              videoFrameHashes.push("")
+              videoFrameBlockIndices.push(null)
+            }
+          }
+
+          // For compatibility with existing UI that expects a single hash/block
+          backendHash = videoFrameHashes.find((h) => Boolean(h)) || null
+          backendBlockIndex = (videoFrameBlockIndices.find((b) => typeof b === "number") as number | undefined) ?? null
         }
       }
 
@@ -367,8 +412,18 @@ export default function CameraPage() {
         device: navigator.userAgent,
         blockchainTxId: !isGuest ? (backendHash || null) : null,
         blockchainBlock: !isGuest ? backendBlockIndex : null,
-        blockchainTimestamp: !isGuest ? timestamp : null,
+        blockchainTimestamp: !isGuest ? captureTimestamp : null,
         verificationStatus: !isGuest ? 'confirmed' : 'unverified'
+        ,
+        ...(mode === "video"
+          ? {
+              videoFrameCount: videoFrameTimesSec?.length || 0,
+              videoFrameTimesSec: videoFrameTimesSec || [],
+              videoFrameTimestamps: videoFrameTimestamps || [],
+              videoFrameHashes: videoFrameHashes || [],
+              videoFrameBlockIndices: videoFrameBlockIndices || [],
+            }
+          : {}),
       }
 
       const userId = user?.id || 'guest'
@@ -382,7 +437,7 @@ export default function CameraPage() {
         metadata,
         userId,
         isGuest,
-        timestamp
+        captureTimestamp
       )
 
       toast({

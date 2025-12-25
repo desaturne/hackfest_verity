@@ -11,6 +11,7 @@ import { Upload, ArrowLeft, CheckCircle2, XCircle, AlertCircle, MapPin } from "l
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/supabase"
 import { downloadMediaFile, getMediaUrl, getUserMedia, updateMediaVerification, type MediaItem } from "@/lib/supabase/media"
+import { extractVideoFrames, getVideoDurationSeconds, makeEvenlySpacedTimes } from "@/lib/video/extract-frames"
 
 type VerificationResult = {
   status: "verified" | "altered" | "insufficient"
@@ -47,6 +48,8 @@ export default function VerifyPage() {
   const storedLatitude = selectedItem?.metadata?.latitude
   const storedLongitude = selectedItem?.metadata?.longitude
   const storedTimestampForHash = selectedItem?.metadata?.blockchainTimestamp || selectedItem?.timestamp
+  const storedVideoFrameTimesSec = (selectedItem?.metadata as any)?.videoFrameTimesSec as number[] | undefined
+  const storedVideoFrameTimestamps = (selectedItem?.metadata as any)?.videoFrameTimestamps as string[] | undefined
 
   useEffect(() => {
     if (!user) return
@@ -57,7 +60,6 @@ export default function VerifyPage() {
           const media = await getUserMedia(user.id)
           const withUrls = await Promise.all(
             media
-              .filter((m) => m.type === "photo")
               .map(async (m) => ({ ...m, imageUrl: await getMediaUrl(m.storage_path) })),
           )
           setMediaItems(withUrls)
@@ -129,6 +131,37 @@ export default function VerifyPage() {
     }
   }
 
+  const ensureStoredVideoMetadata = () => {
+    if (!user) {
+      throw new Error("Please sign in to verify using saved metadata.")
+    }
+    if (!selectedItem) {
+      throw new Error("Select a saved record to verify against.")
+    }
+    if (selectedItem.type !== "video") {
+      throw new Error("Select a saved VIDEO record to verify a video.")
+    }
+    if (!storedLatitude || !storedLongitude) {
+      throw new Error("Missing stored latitude/longitude for this record.")
+    }
+    if (storedLatitude === "N/A" || storedLongitude === "N/A") {
+      throw new Error("This record does not have usable location metadata.")
+    }
+
+    const timesSec = Array.isArray(storedVideoFrameTimesSec) ? storedVideoFrameTimesSec : []
+    const frameTimestamps = Array.isArray(storedVideoFrameTimestamps) ? storedVideoFrameTimestamps : []
+    if (timesSec.length === 0 || frameTimestamps.length === 0 || timesSec.length !== frameTimestamps.length) {
+      throw new Error("This video record is missing saved frame metadata. Re-capture and save the video.")
+    }
+
+    return {
+      latitude: storedLatitude,
+      longitude: storedLongitude,
+      frameTimesSec: timesSec,
+      frameTimestamps,
+    }
+  }
+
   const verifyWithBackend = async (imageFile: File) => {
     const stored = ensureStoredMetadata()
 
@@ -144,6 +177,52 @@ export default function VerifyPage() {
       throw new Error(data?.error || "Verification failed")
     }
     return data as { verified?: boolean; blockIndex?: number; timestamp?: string }
+  }
+
+  const verifyVideoWithBackend = async (videoFile: File) => {
+    const stored = ensureStoredVideoMetadata()
+
+    const durationSec = await getVideoDurationSeconds(videoFile)
+    // Prefer the same timestamps used during capture; if duration is unavailable, still use stored times.
+    const times = stored.frameTimesSec.length > 0 ? stored.frameTimesSec : makeEvenlySpacedTimes(durationSec || 5, 5)
+
+    toast({ title: "Processing video...", description: "Extracting frames for verification" })
+    const frames = await extractVideoFrames(videoFile, times, { mimeType: "image/jpeg", quality: 0.92 })
+
+    const results: Array<{ verified: boolean; blockIndex?: number; timestamp?: string }> = []
+    for (let i = 0; i < frames.length; i++) {
+      const fd = new FormData()
+      fd.append("image", frames[i].file)
+      fd.append("latitude", stored.latitude)
+      fd.append("longitude", stored.longitude)
+      fd.append("timestamp", stored.frameTimestamps[i])
+
+      const res = await fetch("/api/evidence/verify", { method: "POST", body: fd })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || `Verification failed for frame ${i + 1}`)
+      }
+      results.push({
+        verified: Boolean((data as any)?.verified),
+        blockIndex: typeof (data as any)?.blockIndex === "number" ? (data as any).blockIndex : undefined,
+        timestamp: typeof (data as any)?.timestamp === "string" ? (data as any).timestamp : undefined,
+      })
+    }
+
+    const failedIndices = results
+      .map((r, idx) => ({ ok: r.verified, idx }))
+      .filter((x) => !x.ok)
+      .map((x) => x.idx)
+
+    return {
+      allVerified: failedIndices.length === 0,
+      verifiedCount: results.filter((r) => r.verified).length,
+      total: results.length,
+      failedIndices,
+      // Expose first verified block/timestamp for display.
+      anyBlockIndex: results.find((r) => typeof r.blockIndex === "number")?.blockIndex,
+      anyTimestamp: results.find((r) => typeof r.timestamp === "string")?.timestamp,
+    }
   }
 
   const persistVerification = async (verified: boolean, apiTimestamp?: string, apiBlockIndex?: number) => {
@@ -169,42 +248,86 @@ export default function VerifyPage() {
     setLoading(true)
       ; (async () => {
         try {
-          if (!file.type.startsWith("image/")) {
-            const next: VerificationResult = {
-              status: "insufficient",
-              message:
-                "Sorry, but we do not have sufficient data to check the credibility of the img/vid at the moment.",
-            }
+          if (file.type.startsWith("image/")) {
+            const data = await verifyWithBackend(file)
+            const verified = Boolean(data?.verified)
+
+            const next: VerificationResult = verified
+              ? {
+                  status: "verified",
+                  message: "No alterations made.",
+                  latitude: Number(storedLatitude),
+                  longitude: Number(storedLongitude),
+                  timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
+                  blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
+                }
+              : {
+                  status: "altered",
+                  message: "No matching block found for this image + metadata.",
+                }
+
             setResult(next)
-            toast({ title: "Verification Complete", description: next.message })
+            try {
+              await persistVerification(verified, data?.timestamp, data?.blockIndex)
+            } catch (e: any) {
+              console.warn("Unable to persist verification state:", e)
+            }
+
+            toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
             return
           }
 
-          const data = await verifyWithBackend(file)
-          const verified = Boolean(data?.verified)
+          if (file.type.startsWith("video/")) {
+            const data = await verifyVideoWithBackend(file)
+            const verified = Boolean(data.allVerified)
 
-          const next: VerificationResult = verified
-            ? {
-              status: "verified",
-              message: "No alterations made.",
-              latitude: Number(storedLatitude),
-              longitude: Number(storedLongitude),
-              timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
-              blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
-            }
-            : {
-              status: "altered",
-              message: "No matching block found for this image + metadata.",
+            const next: VerificationResult = verified
+              ? {
+                  status: "verified",
+                  message: `Video verified. ${data.verifiedCount}/${data.total} frames matched.`,
+                  latitude: Number(storedLatitude),
+                  longitude: Number(storedLongitude),
+                  timestamp: data.anyTimestamp ? new Date(data.anyTimestamp).toLocaleString() : undefined,
+                  blockIndex: typeof data.anyBlockIndex === "number" ? data.anyBlockIndex : undefined,
+                }
+              : {
+                  status: "altered",
+                  message: `Video altered. ${data.verifiedCount}/${data.total} frames matched. Failed frames: ${data.failedIndices.map((i) => i + 1).join(", ")}.`,
+                }
+
+            setResult(next)
+            try {
+              // Persist the summary on the saved video record
+              if (selectedItem) {
+                const nextMetadata = {
+                  ...(selectedItem.metadata as any),
+                  verificationStatus: verified ? "confirmed" : "altered",
+                  verifiedAt: new Date().toISOString(),
+                  videoVerifiedFrameCount: data.verifiedCount,
+                  videoFailedFrameIndices: data.failedIndices,
+                }
+                const nextVerified = verified ? true : selectedItem.verified
+                const updated = await updateMediaVerification(selectedItem.id, nextVerified, nextMetadata)
+                if (updated) {
+                  setMediaItems((prev) => prev.map((m) => (m.id === selectedItem.id ? { ...m, ...updated } : m)))
+                }
+              }
+            } catch (e: any) {
+              console.warn("Unable to persist verification state:", e)
             }
 
-          setResult(next)
-          try {
-            await persistVerification(verified, data?.timestamp, data?.blockIndex)
-          } catch (e: any) {
-            console.warn("Unable to persist verification state:", e)
+            toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+            return
           }
 
-          toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+          const next: VerificationResult = {
+            status: "insufficient",
+            message: "Unsupported file type.",
+          }
+          setResult(next)
+          toast({ title: "Verification Complete", description: next.message })
+          return
+
         } catch (error: any) {
           toast({
             title: "Verification failed",
@@ -220,36 +343,85 @@ export default function VerifyPage() {
   const handleVerifyFromSaved = async () => {
     setLoading(true)
     try {
-      ensureStoredMetadata()
+      if (!selectedItem) {
+        throw new Error("Select a saved record to verify.")
+      }
       if (!selectedItem) return
 
       toast({ title: "Verifying...", description: "Downloading saved media and verifying" })
-      const savedFile = await downloadMediaFile(selectedItem.storage_path, `media-${selectedItem.id}.png`)
-      const data = await verifyWithBackend(savedFile)
-      const verified = Boolean(data?.verified)
+      const ext = selectedItem.type === "video" ? "webm" : "png"
+      const savedFile = await downloadMediaFile(selectedItem.storage_path, `media-${selectedItem.id}.${ext}`)
 
-      const next: VerificationResult = verified
-        ? {
-          status: "verified",
-          message: "No alterations made.",
-          latitude: Number(storedLatitude),
-          longitude: Number(storedLongitude),
-          timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
-          blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
-        }
-        : {
-          status: "altered",
-          message: "No matching block found for this image + metadata.",
+      if (selectedItem.type === "photo") {
+        ensureStoredMetadata()
+        const data = await verifyWithBackend(savedFile)
+        const verified = Boolean(data?.verified)
+
+        const next: VerificationResult = verified
+          ? {
+              status: "verified",
+              message: "No alterations made.",
+              latitude: Number(storedLatitude),
+              longitude: Number(storedLongitude),
+              timestamp: data?.timestamp ? new Date(data.timestamp).toLocaleString() : undefined,
+              blockIndex: typeof data?.blockIndex === "number" ? data.blockIndex : undefined,
+            }
+          : {
+              status: "altered",
+              message: "No matching block found for this image + metadata.",
+            }
+
+        setResult(next)
+        try {
+          await persistVerification(verified, data?.timestamp, data?.blockIndex)
+        } catch (e: any) {
+          console.warn("Unable to persist verification state:", e)
         }
 
-      setResult(next)
-      try {
-        await persistVerification(verified, data?.timestamp, data?.blockIndex)
-      } catch (e: any) {
-        console.warn("Unable to persist verification state:", e)
+        toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+        return
       }
 
-      toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+      if (selectedItem.type === "video") {
+        const data = await verifyVideoWithBackend(savedFile)
+        const verified = Boolean(data.allVerified)
+
+        const next: VerificationResult = verified
+          ? {
+              status: "verified",
+              message: `Video verified. ${data.verifiedCount}/${data.total} frames matched.`,
+              latitude: Number(storedLatitude),
+              longitude: Number(storedLongitude),
+              timestamp: data.anyTimestamp ? new Date(data.anyTimestamp).toLocaleString() : undefined,
+              blockIndex: typeof data.anyBlockIndex === "number" ? data.anyBlockIndex : undefined,
+            }
+          : {
+              status: "altered",
+              message: `Video altered. ${data.verifiedCount}/${data.total} frames matched. Failed frames: ${data.failedIndices.map((i) => i + 1).join(", ")}.`,
+            }
+
+        setResult(next)
+        try {
+          const nextMetadata = {
+            ...(selectedItem.metadata as any),
+            verificationStatus: verified ? "confirmed" : "altered",
+            verifiedAt: new Date().toISOString(),
+            videoVerifiedFrameCount: data.verifiedCount,
+            videoFailedFrameIndices: data.failedIndices,
+          }
+          const nextVerified = verified ? true : selectedItem.verified
+          const updated = await updateMediaVerification(selectedItem.id, nextVerified, nextMetadata)
+          if (updated) {
+            setMediaItems((prev) => prev.map((m) => (m.id === selectedItem.id ? { ...m, ...updated } : m)))
+          }
+        } catch (e: any) {
+          console.warn("Unable to persist verification state:", e)
+        }
+
+        toast({ title: "Verification Complete", description: next.message, variant: verified ? "default" : "destructive" })
+        return
+      }
+
     } catch (error: any) {
       toast({
         title: "Verification failed",
@@ -324,7 +496,7 @@ export default function VerifyPage() {
               ) : loadingMedia ? (
                 <p className="text-sm text-muted-foreground">Loading saved media...</p>
               ) : mediaItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No saved photos found.</p>
+                <p className="text-sm text-muted-foreground">No saved media found.</p>
               ) : (
                 <div className="flex gap-2 overflow-x-auto pb-2">
                   {mediaItems.slice(0, 12).map((m) => (
@@ -338,11 +510,21 @@ export default function VerifyPage() {
                       className={`shrink-0 rounded-md border ${m.id === selectedItemId ? "border-primary" : "border-border"}`}
                       aria-label="Select saved media"
                     >
-                      <img
-                        src={m.imageUrl || "/placeholder.svg"}
-                        alt="Saved media thumbnail"
-                        className="h-16 w-16 rounded-md object-cover"
-                      />
+                      {m.type === "video" ? (
+                        <video
+                          src={m.imageUrl || ""}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="h-16 w-16 rounded-md object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={m.imageUrl || "/placeholder.svg"}
+                          alt="Saved media thumbnail"
+                          className="h-16 w-16 rounded-md object-cover"
+                        />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -357,9 +539,27 @@ export default function VerifyPage() {
                     </span>
                   </div>
                   <div className="mt-1 text-muted-foreground">
-                    timestamp (for hash): {String(storedTimestampForHash || "-")}
+                    {selectedItem.type === "video"
+                      ? `video frames: ${Array.isArray(storedVideoFrameTimestamps) ? storedVideoFrameTimestamps.length : 0}`
+                      : `timestamp (for hash): ${String(storedTimestampForHash || "-")}`}
                   </div>
                 </div>
+              )}
+
+              {/* Verify saved media (no upload required) */}
+              {user && selectedItem && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleVerifyFromSaved}
+                  disabled={loading}
+                >
+                  {loading
+                    ? "Verifying..."
+                    : selectedItem.type === "video"
+                      ? "Verify selected saved video"
+                      : "Verify selected saved photo"}
+                </Button>
               )}
             </div>
 
@@ -393,14 +593,18 @@ export default function VerifyPage() {
               )}
             </div>
             <div>
-            {user && selectedItem && (
+              {user && selectedItem && (
                 <Button
                   variant="outline"
                   className="w-full"
                   onClick={handleVerifyFromSaved}
                   disabled={loading}
                 >
-                  {loading ? "Verifying..." : "Verify using saved Supabase media"}
+                  {loading
+                    ? "Verifying..."
+                    : selectedItem.type === "video"
+                      ? "Verify selected saved video"
+                      : "Verify selected saved photo"}
                 </Button>
               )}
               </div>

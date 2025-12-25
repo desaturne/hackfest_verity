@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
+import { extractVideoFrames } from "@/lib/video/extract-frames"
 
 type GalleryItem = MediaItem & {
   imageUrl?: string
@@ -101,12 +102,19 @@ export default function GalleryPage() {
     setDetailModalOpen(true)
   }
 
-  const handleVerifySelected = async () => {
-    if (!user || !selectedItem) return
+  const verifyItem = async (item: GalleryItem) => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to verify saved media.",
+        variant: "destructive",
+      })
+      return
+    }
 
-    const latitude = selectedItem.metadata?.latitude
-    const longitude = selectedItem.metadata?.longitude
-    const timestampForHash = selectedItem.metadata?.blockchainTimestamp || selectedItem.timestamp
+    const latitude = item.metadata?.latitude
+    const longitude = item.metadata?.longitude
+    const timestampForHash = item.metadata?.blockchainTimestamp || item.timestamp
 
     if (!latitude || !longitude || !timestampForHash) {
       toast({
@@ -124,52 +132,120 @@ export default function GalleryPage() {
         description: "Uploading this media from your gallery for verification",
       })
 
-      const ext = selectedItem.type === 'video' ? 'webm' : 'png' // media recorder uses webm
-      // Or checking mime type if we stored it, but checking type is safer for now given our upload logic
-      // Actually upload logic uses .webm or .mp4 depending on browser support, but we stored ext in path?
-      // storage_path is `userId/timestamp.ext`. valid.
-      // But downloadMediaFile signature takes a fileName for the File object created.
-      // Let's rely on storage_path extension if possible, or just default to type.
+      if (item.type === "photo") {
+        const file = await downloadMediaFile(item.storage_path, `media-${item.id}.png`)
 
-      const file = await downloadMediaFile(
-        selectedItem.storage_path,
-        `media-${selectedItem.id}.${ext}`,
-      )
+        const fd = new FormData()
+        fd.append("image", file)
+        fd.append("latitude", latitude)
+        fd.append("longitude", longitude)
+        fd.append("timestamp", timestampForHash)
 
-      const fd = new FormData()
-      fd.append("image", file)
-      fd.append("latitude", latitude)
-      fd.append("longitude", longitude)
-      fd.append("timestamp", timestampForHash)
+        const res = await fetch("/api/evidence/verify", { method: "POST", body: fd })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error || "Verification failed")
 
-      const res = await fetch("/api/evidence/verify", { method: "POST", body: fd })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Verification failed")
+        const verified = Boolean(data?.verified)
+        const nextMetadata = {
+          ...(item.metadata as any),
+          verificationStatus: verified ? "confirmed" : "altered",
+          verifiedAt: new Date().toISOString(),
+          verifiedBlockIndex:
+            typeof data?.blockIndex === "number" ? data.blockIndex : (item.metadata as any)?.verifiedBlockIndex,
+          verifiedBackendTimestamp:
+            typeof data?.timestamp === "string" ? data.timestamp : (item.metadata as any)?.verifiedBackendTimestamp,
+        }
+        const nextVerified = verified ? true : item.verified
 
-      const verified = Boolean(data?.verified)
-      const nextMetadata = {
-        ...(selectedItem.metadata as any),
-        verificationStatus: verified ? "confirmed" : "altered",
+        try {
+          const updated = await updateMediaVerification(item.id, nextVerified, nextMetadata)
+          if (updated) {
+            setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, ...updated } : it)))
+            setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, ...updated } : prev))
+          }
+        } catch (e: any) {
+          console.warn("Unable to persist verification state:", e)
+        }
+
+        toast({
+          title: verified ? "Verified" : "Not verified",
+          description: verified ? "No alterations made." : "No matching proof found (or metadata mismatch).",
+          variant: verified ? "default" : "destructive",
+        })
+        return
       }
-      const nextVerified = verified ? true : selectedItem.verified
+
+      if (item.type === "video") {
+        const frameTimesSec = (item.metadata as any)?.videoFrameTimesSec as number[] | undefined
+        const frameTimestamps = (item.metadata as any)?.videoFrameTimestamps as string[] | undefined
+
+        if (!Array.isArray(frameTimesSec) || !Array.isArray(frameTimestamps) || frameTimesSec.length !== frameTimestamps.length || frameTimesSec.length === 0) {
+          throw new Error("This video record is missing saved frame metadata. Re-capture and save the video.")
+        }
+
+        const videoFile = await downloadMediaFile(item.storage_path, `media-${item.id}.webm`)
+
+        toast({
+          title: "Processing video...",
+          description: `Extracting ${frameTimesSec.length} frames for verification`,
+        })
+
+        const frames = await extractVideoFrames(videoFile, frameTimesSec, { mimeType: "image/jpeg", quality: 0.92 })
+
+        let verifiedCount = 0
+        const failedIndices: number[] = []
+        const verifiedBlockIndices: Array<number | null> = []
+
+        for (let i = 0; i < frames.length; i++) {
+          const fd = new FormData()
+          fd.append("image", frames[i].file)
+          fd.append("latitude", latitude)
+          fd.append("longitude", longitude)
+          fd.append("timestamp", frameTimestamps[i])
+
+          const res = await fetch("/api/evidence/verify", { method: "POST", body: fd })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(data?.error || `Verification failed for frame ${i + 1}`)
+
+          const ok = Boolean(data?.verified)
+          if (ok) verifiedCount += 1
+          else failedIndices.push(i)
+          verifiedBlockIndices.push(typeof data?.blockIndex === "number" ? data.blockIndex : null)
+        }
+
+        const allVerified = failedIndices.length === 0
+        const nextMetadata = {
+          ...(item.metadata as any),
+          verificationStatus: allVerified ? "confirmed" : "altered",
+          verifiedAt: new Date().toISOString(),
+          videoVerifiedFrameCount: verifiedCount,
+          videoFailedFrameIndices: failedIndices,
+          // Keep frame-level indices to help debugging (optional)
+          verifiedFrameBlockIndices: verifiedBlockIndices,
+        }
+        const nextVerified = allVerified ? true : item.verified
 
       try {
-        const updated = await updateMediaVerification(selectedItem.id, nextVerified, nextMetadata)
+          const updated = await updateMediaVerification(item.id, nextVerified, nextMetadata)
         if (updated) {
-          setItems((prev) => prev.map((it) => (it.id === selectedItem.id ? { ...it, ...updated } : it)))
-          setSelectedItem((prev) => (prev && prev.id === selectedItem.id ? { ...prev, ...updated } : prev))
+            setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, ...updated } : it)))
+            setSelectedItem((prev) => (prev && prev.id === item.id ? { ...prev, ...updated } : prev))
         }
       } catch (e: any) {
         console.warn("Unable to persist verification state:", e)
       }
 
       toast({
-        title: verified ? "Verified" : "Not verified",
-        description: verified
-          ? "No alterations made."
-          : "No matching proof found in backend ledger (or metadata mismatch).",
-        variant: verified ? "default" : "destructive",
+        title: allVerified ? "Verified" : "Not verified",
+        description: allVerified
+          ? `Video verified. ${verifiedCount}/${frames.length} frames matched.`
+          : `Video altered. ${verifiedCount}/${frames.length} frames matched. Failed frames: ${failedIndices.map((x) => x + 1).join(", ")}.`,
+        variant: allVerified ? "default" : "destructive",
       })
+      return
+      }
+
+      throw new Error("Unsupported media type")
     } catch (error: any) {
       toast({
         title: "Verification error",
@@ -179,6 +255,11 @@ export default function GalleryPage() {
     } finally {
       setIsVerifying(false)
     }
+  }
+
+  const handleVerifySelected = async () => {
+    if (!selectedItem) return
+    return verifyItem(selectedItem)
   }
 
   const copyToClipboard = (text: string) => {
@@ -256,7 +337,7 @@ export default function GalleryPage() {
                     className="h-full w-full object-cover transition-transform group-hover:scale-105"
                   />
                 )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
                   <div className="absolute bottom-2 left-2 flex items-center gap-2">
                     {item.verified ? (
                       <CheckCircle2 className="h-5 w-5 text-green-400" />
@@ -265,6 +346,20 @@ export default function GalleryPage() {
                     )}
                     <span className="text-xs text-white">{item.verified ? "Verified" : "Unverified"}</span>
                   </div>
+
+                  {/* Direct verify button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      verifyItem(item)
+                    }}
+                    disabled={isVerifying}
+                    className="absolute left-2 top-2 rounded-full bg-primary/90 px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary disabled:opacity-50"
+                    aria-label="Verify media"
+                  >
+                    {isVerifying ? "Verifying..." : "Verify"}
+                  </button>
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -325,11 +420,9 @@ export default function GalleryPage() {
                 )}
               </div>
 
-              {user && (
-                <Button className="w-full" onClick={handleVerifySelected} disabled={isVerifying}>
-                  {isVerifying ? "Verifying..." : "Verify from Gallery"}
-                </Button>
-              )}
+              <Button className="w-full" onClick={handleVerifySelected} disabled={isVerifying}>
+                {isVerifying ? "Verifying..." : "Verify"}
+              </Button>
 
               {/* Metadata Cards */}
               <div className="space-y-3">
