@@ -27,7 +27,7 @@ export type MediaItem = {
  * Upload media to Supabase Storage and create database record
  */
 export async function uploadMedia(
-  imageData: string,
+  imageData: string | Blob,
   type: "photo" | "video",
   location: string,
   metadata: MediaMetadata,
@@ -39,24 +39,35 @@ export async function uploadMedia(
   if (!supabase) throw new Error("Supabase client not initialized")
 
   try {
-    // Convert base64 to blob
-    const base64Data = imageData.split(",")[1]
-    const byteCharacters = atob(base64Data)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
+    // Convert base64 to blob if needed
+    let blob: Blob
+    let contentType = type === "video" ? "video/webm" : "image/png"
+    let extension = type === "video" ? "webm" : "png"
+
+    if (typeof imageData === "string") {
+      const base64Data = imageData.split(",")[1]
+      const byteCharacters = atob(base64Data)
+      const byteNumbers = new Array(byteCharacters.length)
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      const byteArray = new Uint8Array(byteNumbers)
+      blob = new Blob([byteArray], { type: "image/png" })
+    } else {
+      blob = imageData
+      if (blob.type) {
+        contentType = blob.type
+      }
     }
-    const byteArray = new Uint8Array(byteNumbers)
-    const blob = new Blob([byteArray], { type: "image/png" })
 
     // Generate unique filename
     const timestamp = Date.now()
-    const fileName = `${userId}/${timestamp}.png`
+    const fileName = `${userId}/${timestamp}.${extension}`
 
     // Upload to Supabase Storage (retry once if session expired)
     const doUpload = async () => {
       return supabase.storage.from("media").upload(fileName, blob, {
-        contentType: "image/png",
+        contentType: contentType,
         upsert: false,
       })
     }
