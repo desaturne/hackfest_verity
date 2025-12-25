@@ -124,9 +124,16 @@ export default function GalleryPage() {
         description: "Uploading this media from your gallery for verification",
       })
 
+      const ext = selectedItem.type === 'video' ? 'webm' : 'png' // media recorder uses webm
+      // Or checking mime type if we stored it, but checking type is safer for now given our upload logic
+      // Actually upload logic uses .webm or .mp4 depending on browser support, but we stored ext in path?
+      // storage_path is `userId/timestamp.ext`. valid.
+      // But downloadMediaFile signature takes a fileName for the File object created.
+      // Let's rely on storage_path extension if possible, or just default to type.
+
       const file = await downloadMediaFile(
         selectedItem.storage_path,
-        `media-${selectedItem.id}.png`,
+        `media-${selectedItem.id}.${ext}`,
       )
 
       const fd = new FormData()
@@ -223,11 +230,32 @@ export default function GalleryPage() {
                 className="group relative aspect-square overflow-hidden rounded-lg bg-card shadow-sm cursor-pointer"
                 onClick={() => handleItemClick(item)}
               >
-                <img
-                  src={item.imageUrl || "/placeholder.svg"}
-                  alt="Gallery item"
-                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                />
+                {item.type === 'video' ? (
+                  <div className="relative h-full w-full bg-black">
+                    <video
+                      src={item.imageUrl}
+                      className="h-full w-full object-cover"
+                      muted
+                      playsInline
+                      onMouseOver={(e) => e.currentTarget.play()}
+                      onMouseOut={(e) => {
+                        e.currentTarget.pause();
+                        e.currentTarget.currentTime = 0;
+                      }}
+                    />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/50 rounded-full p-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-6 h-6">
+                        <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  </div>
+                ) : (
+                  <img
+                    src={item.imageUrl || "/placeholder.svg"}
+                    alt="Gallery item"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100">
                   <div className="absolute bottom-2 left-2 flex items-center gap-2">
                     {item.verified ? (
@@ -282,11 +310,19 @@ export default function GalleryPage() {
             <div className="space-y-4">
               {/* Image Preview */}
               <div className="relative aspect-video w-full overflow-hidden rounded-lg">
-                <img
-                  src={selectedItem.imageUrl || "/placeholder.svg"}
-                  alt="Media preview"
-                  className="w-full h-full object-contain bg-muted"
-                />
+                {selectedItem.type === 'video' ? (
+                  <video
+                    src={selectedItem.imageUrl}
+                    controls
+                    className="w-full h-full object-contain bg-black"
+                  />
+                ) : (
+                  <img
+                    src={selectedItem.imageUrl || "/placeholder.svg"}
+                    alt="Media preview"
+                    className="w-full h-full object-contain bg-muted"
+                  />
+                )}
               </div>
 
               {user && (
