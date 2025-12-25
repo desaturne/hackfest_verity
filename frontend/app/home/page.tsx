@@ -98,11 +98,11 @@ export default function HomePage() {
           {/* Mascot */}
           <div className="flex justify-center">
             <Image
-              src="/images/verify.png"
+              src="/images/signup.png"
               alt="Dashboard Mascot"
               width={160}
               height={160}
-              className="h-40 w-auto object-contain"
+              className="h-56 w-auto object-contain"
               priority
             />
           </div>
