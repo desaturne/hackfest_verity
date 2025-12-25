@@ -47,7 +47,6 @@ exports.uploadEvidence = async (req, res) => {
       hash: photoHash,
       type: evidenceData.type,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -81,9 +80,8 @@ exports.verifyEvidence = async (req, res) => {
     res.json({
       verified: true,
       blockIndex: block.index,
-      timestamp: block.timestamp
+      timestamp: block.timestamp,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
