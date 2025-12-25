@@ -25,6 +25,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { extractVideoFrames } from "@/lib/video/extract-frames"
+import { blobToDataUrl, createEvidencePackageV1, downloadEvidenceBundle } from "@/lib/storage"
 
 type GalleryItem = MediaItem & {
   imageUrl?: string
@@ -262,6 +263,32 @@ export default function GalleryPage() {
     return verifyItem(selectedItem)
   }
 
+  const handleExportEvidenceJson = async () => {
+    if (!selectedItem) return
+    try {
+      const ext = selectedItem.type === "video" ? "webm" : "png"
+      const file = await downloadMediaFile(selectedItem.storage_path, `media-${selectedItem.id}.${ext}`)
+      const mediaDataUrl = await blobToDataUrl(file)
+
+      const pkg = createEvidencePackageV1({
+        userId: selectedItem.user_id,
+        mediaType: selectedItem.type,
+        captureTimestamp: String(selectedItem.metadata?.blockchainTimestamp || selectedItem.timestamp),
+        mediaDataUrl,
+        metadata: (selectedItem.metadata as any) || {},
+      })
+
+      downloadEvidenceBundle(pkg)
+      toast({ title: "Exported", description: "Evidence JSON downloaded." })
+    } catch (e: any) {
+      toast({
+        title: "Export failed",
+        description: e?.message || "Unable to export evidence JSON",
+        variant: "destructive",
+      })
+    }
+  }
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
   }
@@ -422,6 +449,10 @@ export default function GalleryPage() {
 
               <Button className="w-full" onClick={handleVerifySelected} disabled={isVerifying}>
                 {isVerifying ? "Verifying..." : "Verify"}
+              </Button>
+
+              <Button variant="outline" className="w-full" onClick={handleExportEvidenceJson}>
+                Export evidence JSON
               </Button>
 
               {/* Metadata Cards */}

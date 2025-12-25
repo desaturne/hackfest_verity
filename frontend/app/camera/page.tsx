@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/supabase"
 import { uploadMedia } from "@/lib/supabase/media"
 import { extractVideoFrames, getVideoDurationSeconds, makeEvenlySpacedTimes } from "@/lib/video/extract-frames"
+import { blobToDataUrl, createEvidencePackageV1, downloadEvidencePackage, saveEvidencePackage } from "@/lib/storage"
 
 export default function CameraPage() {
   const router = useRouter()
@@ -426,8 +427,36 @@ export default function CameraPage() {
           : {}),
       }
 
-      const userId = user?.id || 'guest'
-      const locationString = `${location.latitude}, ${location.longitude}`
+          const userId = user?.id || 'guest'
+          const locationString = `${location.latitude}, ${location.longitude}`
+
+      // Also store a shareable evidence package locally (JSON)
+      // This does not affect backend/Supabase behavior.
+      try {
+        const mediaDataUrl = capturedImage
+          ? capturedImage
+          : capturedVideo
+            ? await blobToDataUrl(capturedVideo)
+            : undefined
+
+        const pkg = createEvidencePackageV1({
+          userId,
+          mediaType: mode,
+          captureTimestamp,
+          mediaDataUrl,
+          metadata: metadata as any,
+        })
+
+        try {
+          saveEvidencePackage(pkg)
+        } catch {
+          // localStorage can be quota-limited (especially for videos).
+          // Fall back to an immediate download so the user can share it.
+          downloadEvidencePackage(pkg)
+        }
+      } catch (e) {
+        console.warn("Unable to store evidence package:", e)
+      }
 
       // Upload to Supabase
       await uploadMedia(
@@ -533,7 +562,7 @@ export default function CameraPage() {
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gray-900 to-black">
+          <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-gray-900 to-black">
             <div className="text-center">
               <Camera className="h-16 w-16 text-white/50 mx-auto mb-4" />
               <p className="text-white/70 text-lg">Tap capture to start camera</p>
@@ -545,7 +574,7 @@ export default function CameraPage() {
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Top Controls */}
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/50 to-transparent">
+        <div className="absolute top-0 left-0 right-0 p-4 bg-linear-to-b from-black/50 to-transparent">
           <div className="flex items-center justify-between">
             <Button size="icon" variant="ghost" className="text-white hover:bg-white/20" onClick={() => router.back()}>
               <X className="h-6 w-6" />
@@ -592,7 +621,7 @@ export default function CameraPage() {
         </div>
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/50 to-transparent">
+        <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-black/50 to-transparent">
           <div className="flex items-center justify-between max-w-md mx-auto">
             {/* Gallery Thumbnail */}
             <Button
